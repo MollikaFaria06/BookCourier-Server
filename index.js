@@ -1,4 +1,4 @@
-// server.js
+// index.js
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -13,23 +13,23 @@ const app = express();
 const port = process.env.PORT || 5000;
 const stripe = new Stripe(process.env.STRIPE_SECRET);
 
-// Middlewares
+// ================= MIDDLEWARES =================
 app.use(cors());
 app.use(express.json());
 
-// Firebase Admin Init
+// ================= FIREBASE ADMIN =================
 try {
   const serviceAccount = JSON.parse(fs.readFileSync(process.env.FB_SERVICE_KEY, 'utf8'));
   admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
-  console.log(" Firebase Admin initialized");
+  console.log("Firebase Admin initialized ✅");
 } catch (err) {
-  console.error(" Firebase Admin initialization failed:", err);
+  console.error("Firebase Admin initialization failed:", err);
 }
 
-// JWT verify middleware
+// ================= JWT VERIFY MIDDLEWARE =================
 const verifyFBToken = async (req, res, next) => {
   const token = req.headers.authorization;
-  if (!token) return res.status(401).send({ message: 'unauthorized' });
+  if (!token) return res.status(401).send({ message: 'Unauthorized' });
 
   try {
     const idToken = token.split(' ')[1];
@@ -38,11 +38,11 @@ const verifyFBToken = async (req, res, next) => {
     req.decoded_uid = decodedUser.uid;
     next();
   } catch (err) {
-    return res.status(401).send({ message: 'unauthorized', error: err.message });
+    return res.status(401).send({ message: 'Unauthorized', error: err.message });
   }
 };
 
-// MongoDB Init
+// ================= MONGODB CONNECTION =================
 const client = new MongoClient(process.env.DB_URI, {
   serverApi: { version: ServerApiVersion.v1, strict: true, deprecationErrors: true }
 });
@@ -56,9 +56,9 @@ async function run() {
     const books = db.collection('books');
     const orders = db.collection('orders');
 
-    console.log(" MongoDB connected");
+    console.log("MongoDB connected ✅");
 
-    // ================= AUTH: Firebase Login + Auto-create =================
+    // ================= AUTH: FIREBASE LOGIN + AUTO-CREATE =================
     app.post('/auth/firebase-login', verifyFBToken, async (req, res) => {
       try {
         const { name, picture } = req.body.user || {};
@@ -146,13 +146,62 @@ async function run() {
       res.send(result);
     });
 
+    // ================= ADMIN ROUTES =================
+    // Get all users
+    app.get('/admin/users', verifyFBToken, async (req, res) => {
+      const requester = await users.findOne({ email: req.decoded_email });
+      if (!requester || requester.role !== 'admin') return res.status(403).send({ message: 'Forbidden' });
+
+      const allUsers = await users.find({}).toArray();
+      res.send({ success: true, users: allUsers.map(u => ({ ...u, _id: u._id.toString() })) });
+    });
+
+    // Update user role
+    app.patch('/admin/users/:id/role', verifyFBToken, async (req, res) => {
+      const requester = await users.findOne({ email: req.decoded_email });
+      if (!requester || requester.role !== 'admin') return res.status(403).send({ message: 'Forbidden' });
+
+      const { role } = req.body;
+      const result = await users.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { role } });
+      res.send({ success: result.modifiedCount > 0 });
+    });
+
+    // Get all books (admin)
+    app.get('/admin/books', verifyFBToken, async (req, res) => {
+      const requester = await users.findOne({ email: req.decoded_email });
+      if (!requester || requester.role !== 'admin') return res.status(403).send({ message: 'Forbidden' });
+
+      const allBooks = await books.find({}).toArray();
+      res.send({ success: true, books: allBooks.map(b => ({ ...b, _id: b._id.toString() })) });
+    });
+
+    // Update book status (publish/unpublish)
+    app.patch('/admin/books/:id/status', verifyFBToken, async (req, res) => {
+      const requester = await users.findOne({ email: req.decoded_email });
+      if (!requester || requester.role !== 'admin') return res.status(403).send({ message: 'Forbidden' });
+
+      const { status } = req.body;
+      const result = await books.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { status } });
+      res.send({ success: result.modifiedCount > 0 });
+    });
+
+    // Delete book + its orders
+    app.delete('/admin/books/:id', verifyFBToken, async (req, res) => {
+      const requester = await users.findOne({ email: req.decoded_email });
+      if (!requester || requester.role !== 'admin') return res.status(403).send({ message: 'Forbidden' });
+
+      await orders.deleteMany({ bookId: req.params.id });
+      const result = await books.deleteOne({ _id: new ObjectId(req.params.id) });
+      res.send({ success: result.deletedCount > 0 });
+    });
+
   } finally {
-    // keep alive
+    // keep-alive
   }
 }
 
 run().catch(console.error);
 
-// Root
+// ================= ROOT =================
 app.get('/', (req, res) => res.send('BookCourier server is running 🚀'));
 app.listen(port, () => console.log(`Server running on port ${port}`));
