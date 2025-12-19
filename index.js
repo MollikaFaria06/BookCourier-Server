@@ -202,6 +202,83 @@ async function run() {
 
 run().catch(console.error);
 
+
+
+
+// ================= LIBRARIAN ROUTES =================
+
+// Get all books added by the logged-in librarian
+app.get('/librarian/my-books', verifyFBToken, async (req, res) => {
+  const requester = await users.findOne({ email: req.decoded_email });
+  if (!requester || requester.role !== 'librarian') return res.status(403).send({ message: 'Forbidden' });
+
+  const myBooks = await books.find({ librarianEmail: req.decoded_email }).toArray();
+  res.send({ success: true, books: myBooks.map(b => ({ ...b, _id: b._id.toString() })) });
+});
+
+// Update book (edit)
+app.patch('/librarian/books/:id', verifyFBToken, async (req, res) => {
+  const requester = await users.findOne({ email: req.decoded_email });
+  if (!requester || requester.role !== 'librarian') return res.status(403).send({ message: 'Forbidden' });
+
+  const { name, author, price, description, status, image } = req.body;
+  const result = await books.updateOne(
+    { _id: new ObjectId(req.params.id), librarianEmail: req.decoded_email },
+    { $set: { name, author, price, description, status, image } }
+  );
+
+  res.send({ success: result.modifiedCount > 0 });
+});
+
+// Get all orders for the books added by the librarian
+app.get('/librarian/orders', verifyFBToken, async (req, res) => {
+  const requester = await users.findOne({ email: req.decoded_email });
+  if (!requester || requester.role !== 'librarian') return res.status(403).send({ message: 'Forbidden' });
+
+  // Get all book IDs added by this librarian
+  const myBooks = await books.find({ librarianEmail: req.decoded_email }).toArray();
+  const myBookIds = myBooks.map(b => b._id.toString());
+
+  const myOrders = await orders.find({ bookId: { $in: myBookIds } }).toArray();
+  res.send({ success: true, orders: myOrders.map(o => ({ ...o, _id: o._id.toString() })) });
+});
+
+// Cancel an order (librarian)
+app.patch('/librarian/orders/:id/cancel', verifyFBToken, async (req, res) => {
+  const requester = await users.findOne({ email: req.decoded_email });
+  if (!requester || requester.role !== 'librarian') return res.status(403).send({ message: 'Forbidden' });
+
+  // Only allow cancelling orders for the librarian's books
+  const order = await orders.findOne({ _id: new ObjectId(req.params.id) });
+  if (!order) return res.status(404).send({ message: 'Order not found' });
+
+  const book = await books.findOne({ _id: new ObjectId(order.bookId) });
+  if (book.librarianEmail !== req.decoded_email) return res.status(403).send({ message: 'Forbidden' });
+
+  const result = await orders.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { status: 'cancelled' } });
+  res.send({ success: result.modifiedCount > 0 });
+});
+
+// Update order status (pending → shipped → delivered)
+app.patch('/librarian/orders/:id/status', verifyFBToken, async (req, res) => {
+  const requester = await users.findOne({ email: req.decoded_email });
+  if (!requester || requester.role !== 'librarian') return res.status(403).send({ message: 'Forbidden' });
+
+  const { status } = req.body;
+  const allowedStatuses = ['pending', 'shipped', 'delivered'];
+  if (!allowedStatuses.includes(status)) return res.status(400).send({ message: 'Invalid status' });
+
+  const order = await orders.findOne({ _id: new ObjectId(req.params.id) });
+  if (!order) return res.status(404).send({ message: 'Order not found' });
+
+  const book = await books.findOne({ _id: new ObjectId(order.bookId) });
+  if (book.librarianEmail !== req.decoded_email) return res.status(403).send({ message: 'Forbidden' });
+
+  const result = await orders.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { status } });
+  res.send({ success: result.modifiedCount > 0 });
+});
+
+
 // ================= ROOT =================
 app.get('/', (req, res) => res.send('BookCourier server is running 🚀'));
 app.listen(port, () => console.log(`Server running on port ${port}`));
