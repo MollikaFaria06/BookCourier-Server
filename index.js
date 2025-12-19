@@ -146,6 +146,20 @@ async function run() {
       res.send(result);
     });
 
+
+
+    // Pay for an order
+app.put('/users/pay/:id', verifyFBToken, async (req, res) => {
+  const orderId = req.params.id;
+  const order = await orders.findOne({ _id: new ObjectId(orderId) });
+  if (!order) return res.status(404).send({ success: false, message: 'Order not found' });
+  if (order.email !== req.decoded_email) return res.status(403).send({ success: false, message: 'Forbidden' });
+  if (order.paymentStatus === 'paid') return res.status(400).send({ success: false, message: 'Already paid' });
+
+  const result = await orders.updateOne({ _id: new ObjectId(orderId) }, { $set: { paymentStatus: 'paid' } });
+  res.send({ success: result.modifiedCount > 0 });
+});
+
     // ================= ADMIN ROUTES =================
     // Get all users
     app.get('/admin/users', verifyFBToken, async (req, res) => {
