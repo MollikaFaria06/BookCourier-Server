@@ -231,6 +231,84 @@ async function run() {
   }
 });
 
+    
+
+   // ================= LIBRARIAN ORDERS =================
+
+// GET all orders for librarian (with bookName & userName)
+app.get("/librarian/orders", verifyFBToken, async (req, res) => {
+  const user = await users.findOne({ email: req.decoded_email });
+  if (!user || user.role !== "librarian")
+    return res.status(403).send({ message: "Forbidden" });
+
+  const myBooks = await books.find({ librarianEmail: req.decoded_email }).toArray();
+  const bookIds = myBooks.map(b => b._id.toString());
+
+  const data = await orders.find({ bookId: { $in: bookIds } }).toArray();
+
+  const enriched = await Promise.all(
+    data.map(async (o) => {
+      const book = await books.findOne({ _id: new ObjectId(o.bookId) });
+      const orderUser = await users.findOne({ email: o.email });
+      return {
+        ...o,
+        _id: o._id.toString(),
+        bookName: book?.title || "Unknown",
+        userName: orderUser?.name || o.email,
+      };
+    })
+  );
+
+  res.send({ success: true, orders: enriched });
+});
+
+// PATCH: Update order status (librarian only)
+app.patch("/librarian/orders/:id/status", verifyFBToken, async (req, res) => {
+  const user = await users.findOne({ email: req.decoded_email });
+  if (!user || user.role !== "librarian")
+    return res.status(403).send({ message: "Forbidden" });
+
+  const { status } = req.body;
+  const validStatus = ["pending", "shipped", "delivered"];
+  if (!validStatus.includes(status))
+    return res.status(400).send({ success: false, message: "Invalid status" });
+
+  const order = await orders.findOne({ _id: new ObjectId(req.params.id) });
+  if (!order) return res.status(404).send({ success: false, message: "Order not found" });
+
+  // check if this order belongs to librarian's book
+  const book = await books.findOne({ _id: new ObjectId(order.bookId) });
+  if (book.librarianEmail !== req.decoded_email)
+    return res.status(403).send({ message: "Forbidden" });
+
+  const result = await orders.updateOne(
+    { _id: new ObjectId(req.params.id) },
+    { $set: { status } }
+  );
+
+  res.send({ success: result.modifiedCount > 0 });
+});
+
+// PATCH: Cancel order (librarian only)
+app.patch("/librarian/orders/:id/cancel", verifyFBToken, async (req, res) => {
+  const user = await users.findOne({ email: req.decoded_email });
+  if (!user || user.role !== "librarian")
+    return res.status(403).send({ message: "Forbidden" });
+
+  const order = await orders.findOne({ _id: new ObjectId(req.params.id) });
+  if (!order) return res.status(404).send({ success: false, message: "Order not found" });
+
+  const book = await books.findOne({ _id: new ObjectId(order.bookId) });
+  if (book.librarianEmail !== req.decoded_email)
+    return res.status(403).send({ message: "Forbidden" });
+
+  const result = await orders.updateOne(
+    { _id: new ObjectId(req.params.id) },
+    { $set: { status: "cancelled" } }
+  );
+
+  res.send({ success: result.modifiedCount > 0 });
+});
 
 
 
