@@ -196,6 +196,43 @@ async function run() {
       res.send({ success: result.modifiedCount > 0 });
     });
 
+
+
+     // ================= USER INVOICES =================
+     app.get("/users/invoices", verifyFBToken, async (req, res) => {
+  try {
+    const db = client.db(process.env.DB_NAME);
+    const ordersCol = db.collection("orders");
+    const booksCol = db.collection("books");
+
+    // ✅ Fetch only paid orders
+    const userOrders = await ordersCol
+      .find({ email: req.decoded_email, paymentStatus: "paid" })
+      .toArray();
+
+    const invoices = await Promise.all(
+      userOrders.map(async (o) => {
+        const book = await booksCol.findOne({ _id: new ObjectId(o.bookId) });
+        return {
+          _id: o._id.toString(),
+          paymentId: o._id.toString().slice(-8).toUpperCase(),
+          bookTitle: book?.title || o.bookTitle || "Unknown",
+          amount: o.price || 0,
+          date: o.createdAt,
+        };
+      })
+    );
+
+    res.send({ success: true, invoices });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ success: false, message: "Failed to fetch invoices" });
+  }
+});
+
+
+
+
     // ================= ADMIN =================
     app.get("/admin/users", verifyFBToken, async (req, res) => {
       const adminUser = await users.findOne({
