@@ -23,10 +23,12 @@ try {
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
   });
-  console.log("Firebase Admin initialized ✅");
+  console.log("Firebase Admin initialized ");
 } catch (err) {
-  console.error("Firebase init failed ❌", err);
+  console.error("Firebase init failed ", err);
 }
+
+
 
 // ================= JWT VERIFY =================
 const verifyFBToken = async (req, res, next) => {
@@ -62,7 +64,7 @@ async function run() {
     const books = db.collection("books");
     const orders = db.collection("orders");
 
-    console.log("MongoDB connected ✅");
+    console.log("MongoDB connected ");
 
     // ================= AUTH =================
     app.post("/auth/firebase-login", verifyFBToken, async (req, res) => {
@@ -146,7 +148,7 @@ async function run() {
     // ================= ORDERS =================
     app.post("/orders", verifyFBToken, async (req, res) => {
       const order = {
-        ...req.body, // must contain bookId
+        ...req.body, 
         email: req.decoded_email,
         status: "pending",
         paymentStatus: "unpaid",
