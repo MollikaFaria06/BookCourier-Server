@@ -146,7 +146,7 @@ async function run() {
     // ================= ORDERS =================
     app.post("/orders", verifyFBToken, async (req, res) => {
       const order = {
-        ...req.body,
+        ...req.body, // must contain bookId
         email: req.decoded_email,
         status: "pending",
         paymentStatus: "unpaid",
@@ -223,6 +223,59 @@ async function run() {
       res.send({ success: result.modifiedCount > 0 });
     });
 
+
+    // ================= ADMIN BOOKS =================
+
+// Get all books (admin)
+app.get("/admin/books", verifyFBToken, async (req, res) => {
+  const adminUser = await users.findOne({ email: req.decoded_email });
+  if (!adminUser || adminUser.role !== "admin") {
+    return res.status(403).send({ message: "Forbidden" });
+  }
+
+  const data = await books.find({}).toArray();
+  res.send({
+    success: true,
+    books: data.map(b => ({ ...b, _id: b._id.toString() })),
+  });
+});
+
+// Publish / Unpublish book
+app.patch("/admin/books/:id/status", verifyFBToken, async (req, res) => {
+  const adminUser = await users.findOne({ email: req.decoded_email });
+  if (!adminUser || adminUser.role !== "admin") {
+    return res.status(403).send({ message: "Forbidden" });
+  }
+
+  const { status } = req.body;
+
+  const result = await books.updateOne(
+    { _id: new ObjectId(req.params.id) },
+    { $set: { status } }
+  );
+
+  res.send({ success: result.modifiedCount > 0 });
+});
+
+// Delete book + its orders
+app.delete("/admin/books/:id", verifyFBToken, async (req, res) => {
+  const adminUser = await users.findOne({ email: req.decoded_email });
+  if (!adminUser || adminUser.role !== "admin") {
+    return res.status(403).send({ message: "Forbidden" });
+  }
+
+  const bookId = req.params.id;
+
+  // delete orders of this book
+  await orders.deleteMany({ bookId });
+
+  // delete book
+  const result = await books.deleteOne({ _id: new ObjectId(bookId) });
+
+  res.send({ success: result.deletedCount > 0 });
+});
+
+
     // ================= LIBRARIAN =================
     app.get("/librarian/my-books", verifyFBToken, async (req, res) => {
       const user = await users.findOne({ email: req.decoded_email });
@@ -239,6 +292,21 @@ async function run() {
       });
     });
 
+    app.patch("/librarian/books/:id", verifyFBToken, async (req, res) => {
+      const user = await users.findOne({ email: req.decoded_email });
+      if (!user || user.role !== "librarian")
+        return res.status(403).send({ message: "Forbidden" });
+
+      const { status, title, author, price, description } = req.body;
+      const result = await books.updateOne(
+        { _id: new ObjectId(req.params.id), librarianEmail: req.decoded_email },
+        { $set: { status, title, author, price, description } }
+      );
+
+      res.send({ success: result.modifiedCount > 0 });
+    });
+
+    // ✅ UPDATED: Librarian Orders with book & user info
     app.get("/librarian/orders", verifyFBToken, async (req, res) => {
       const user = await users.findOne({ email: req.decoded_email });
       if (!user || user.role !== "librarian")
@@ -250,10 +318,24 @@ async function run() {
       const ids = myBooks.map((b) => b._id.toString());
 
       const data = await orders.find({ bookId: { $in: ids } }).toArray();
-      res.send({
-        success: true,
-        orders: data.map((o) => ({ ...o, _id: o._id.toString() })),
-      });
+
+      const enriched = await Promise.all(
+        data.map(async (o) => {
+          const book = await books.findOne({
+            _id: new ObjectId(o.bookId),
+          });
+          const orderUser = await users.findOne({ email: o.email });
+
+          return {
+            ...o,
+            _id: o._id.toString(),
+            bookName: book?.title || "Unknown",
+            userName: orderUser?.name || o.email,
+          };
+        })
+      );
+
+      res.send({ success: true, orders: enriched });
     });
   } finally {
   }
