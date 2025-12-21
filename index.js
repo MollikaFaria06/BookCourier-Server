@@ -310,8 +310,6 @@ app.patch("/librarian/orders/:id/cancel", verifyFBToken, async (req, res) => {
   res.send({ success: result.modifiedCount > 0 });
 });
 
-
-
     // ================= ADMIN =================
     app.get("/admin/users", verifyFBToken, async (req, res) => {
       const adminUser = await users.findOne({
