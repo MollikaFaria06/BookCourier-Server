@@ -64,6 +64,8 @@ async function run() {
     const users = db.collection("users");
     const books = db.collection("books");
     const orders = db.collection("orders");
+    const wishlists = db.collection("wishlists");
+
 
     console.log("MongoDB connected ");
 
@@ -145,6 +147,74 @@ async function run() {
       book._id = book._id.toString();
       res.send({ success: true, book });
     });
+
+
+
+    //==============WISHLIST=====================
+
+     app.post("/wishlist", verifyFBToken, async (req, res) => {
+  const { bookId } = req.body;
+  const email = req.decoded_email;
+
+  if (!bookId) {
+    return res.status(400).send({ success: false, message: "BookId required" });
+  }
+
+  const exists = await wishlists.findOne({ email, bookId });
+  if (exists) {
+    return res
+      .status(400)
+      .send({ success: false, message: "Already in wishlist" });
+  }
+
+  const item = {
+    email,
+    bookId,
+    createdAt: new Date(),
+  };
+
+  const result = await wishlists.insertOne(item);
+  res.send({ success: true, id: result.insertedId });
+});
+
+app.get("/wishlist", verifyFBToken, async (req, res) => {
+  const email = req.decoded_email;
+
+  const data = await wishlists.find({ email }).toArray();
+
+  const enriched = await Promise.all(
+    data.map(async (w) => {
+      const book = await books.findOne({ _id: new ObjectId(w.bookId) });
+      return {
+        ...w,
+        _id: w._id.toString(),
+        book: book ? { ...book, _id: book._id.toString() } : null,
+      };
+    })
+  );
+
+  res.send({ success: true, list: enriched });
+});
+ 
+app.delete("/wishlist/:id", verifyFBToken, async (req, res) => {
+  const email = req.decoded_email;
+
+  const item = await wishlists.findOne({
+    _id: new ObjectId(req.params.id),
+  });
+
+  if (!item || item.email !== email) {
+    return res.status(403).send({ success: false });
+  }
+
+  await wishlists.deleteOne({ _id: new ObjectId(req.params.id) });
+  res.send({ success: true });
+});
+
+
+
+
+
 
     // ================= ORDERS =================
     app.post("/orders", verifyFBToken, async (req, res) => {
